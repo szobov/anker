@@ -4,5 +4,6 @@ pytest-timeout>=2.1.0
 pytest-mypy>=0.10.0
 responses>=0.21.0
 pytest-flake8>=1.1.1
-flake8>=5.0.4
+# flake8>=5.0.4
+flake8<5.0.0  # until https://github.com/tholo/pytest-flake8/pull/88 is not merged
 pytest-black>=0.3.12
