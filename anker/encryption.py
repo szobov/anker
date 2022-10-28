@@ -1,14 +1,14 @@
 import os
 from functools import lru_cache
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 
 @lru_cache(maxsize=1)
 def get_key() -> bytes:
     key = os.getenv("ANKER_PEPPER_KEY")
     assert key
-    return key.encode()
+    return key.strip().encode()
 
 
 @lru_cache(maxsize=1)
@@ -21,4 +21,9 @@ def encrypt_message(message: str) -> str:
 
 
 def decrypt_message(encrypted_message: str) -> str:
-    return get_fernet().decrypt(encrypted_message.encode()).decode()
+    if len(encrypted_message) == "":
+        return ""
+    try:
+        return get_fernet().decrypt(encrypted_message.encode()).decode()
+    except (InvalidToken, UnicodeError):
+        return ""
