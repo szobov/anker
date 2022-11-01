@@ -67,3 +67,7 @@ class FieldInfo:
 class CardInfo:
     front_text: str
     back_text: str
+
+
+class BaseAnkerException(Exception):
+    ...

@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 
 from .types import (
     ANKI_BASE_URL_TYPE,
+    BaseAnkerException,
     CardInfo,
     DeckInfo,
     FieldInfo,
@@ -23,6 +24,12 @@ ANKI_COOKIE_NAME = "ankiweb"
 ANKIUSER_DOMAIN = "ankiuser.net"
 ANKIWEB_URL = "https://ankiweb.net"
 ANKIUSER_URL = f"https://{ANKIUSER_DOMAIN}"
+REQUEST_TIMEOUT_S = 5
+
+
+class AnkiAuthorizationException(BaseAnkerException):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 def make_url(base_url_type: ANKI_BASE_URL_TYPE, endpoint: str) -> str:
@@ -57,7 +64,7 @@ def get_csrf_token(html_page: str) -> str:
 def login(username: str, password: str) -> UserInfo:
     logger.info(msg={"comment": "login end extract token", "user": username})
     url = make_url(ANKI_BASE_URL_TYPE.WEB, "account/login")
-    login_page_response = requests.get(url)
+    login_page_response = requests.get(url, timeout=REQUEST_TIMEOUT_S)
     assert login_page_response.ok
 
     form = LoginForm(
@@ -67,7 +74,10 @@ def login(username: str, password: str) -> UserInfo:
     )
 
     response = requests.post(
-        url, data=form.to_dict(), cookies=login_page_response.cookies
+        url,
+        data=form.to_dict(),
+        cookies=login_page_response.cookies,
+        timeout=REQUEST_TIMEOUT_S,
     )
     assert response.ok, response.text
     request_cookies: requests.cookies.RequestsCookieJar = getattr(
@@ -78,7 +88,9 @@ def login(username: str, password: str) -> UserInfo:
     token = {ANKI_COOKIE_NAME: request_cookies[ANKI_COOKIE_NAME]}
 
     url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/")
-    edit_page_response = requests.get(url, cookies=token, verify=False)
+    edit_page_response = requests.get(
+        url, cookies=token, verify=False, timeout=REQUEST_TIMEOUT_S
+    )
     assert edit_page_response.ok, edit_page_response.text
     request_cookies = getattr(edit_page_response.request, "_cookies")
     usernet_token = next(
@@ -105,7 +117,13 @@ def create_deck(user_info: UserInfo, deck_name: str):
     url = make_url(ANKI_BASE_URL_TYPE.WEB, "decks/create")
     data = {"name": deck_name}
     headers = {"x-requested-with": "XMLHttpRequest"}
-    response = requests.get(url, cookies=user_info.token, params=data, headers=headers)
+    response = requests.get(
+        url,
+        cookies=user_info.token,
+        params=data,
+        headers=headers,
+        timeout=REQUEST_TIMEOUT_S,
+    )
     if not response.ok:
         logger.warning(
             msg={
@@ -114,6 +132,8 @@ def create_deck(user_info: UserInfo, deck_name: str):
                 "status": response.status_code,
             }
         )
+        if response.status_code == 403:
+            raise AnkiAuthorizationException()
         raise RuntimeError  # TODO: use packet-wide exceptions
 
     logger.info(msg={"comment": "deck has been created"})
@@ -124,8 +144,12 @@ def get_decks_and_note_types(
 ) -> tuple[dict[str, DeckInfo], dict[str, NoteTypeInfo]]:
     logger.info(msg={"comment": "get decks and note types", "user": user_info.username})
     url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/getAddInfo")
-    response = requests.get(url, cookies=user_info.token, verify=False)
+    response = requests.get(
+        url, cookies=user_info.token, verify=False, timeout=REQUEST_TIMEOUT_S
+    )
     if response.status_code != 200:
+        if response.status_code == 403:
+            raise AnkiAuthorizationException()
         raise RuntimeError  # TODO: use packet-wide exceptions
     content: dict[str, _t.Any] = {}
     try:
@@ -160,9 +184,11 @@ def get_note_type_fields(
         cookies=user_info.usernet_token,
         params={"ntid": note_type.note_id},
         verify=False,
+        timeout=REQUEST_TIMEOUT_S,
     )
-    assert response.status_code == 200, response.text
     if response.status_code != 200:
+        if response.status_code == 403:
+            raise AnkiAuthorizationException()
         raise RuntimeError  # TODO: use packet-wide exceptions
     try:
         content = response.json()
@@ -204,9 +230,16 @@ def add_card_to_deck(
     }
 
     response = requests.post(
-        url, data=data, cookies=user_info.usernet_token, verify=False
+        url,
+        data=data,
+        cookies=user_info.usernet_token,
+        verify=False,
+        timeout=REQUEST_TIMEOUT_S,
     )
-    assert response.status_code == 200, response.text
+    if response.status_code != 200:
+        if response.status_code == 403:
+            raise AnkiAuthorizationException()
+        raise RuntimeError  # TODO: use packet-wide exceptions
 
     content: list[str | list[str]] = []
     try:
