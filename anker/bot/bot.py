@@ -12,18 +12,29 @@ logger = logging.getLogger(__name__)
 
 
 def _check_message_type_and_expected_users(
-    expected_users: set[int], message: telebot.types.Message
+    expected_users: set[int],
+    message_or_callback_query: telebot.types.Message | telebot.types.CallbackQuery,
 ) -> bool:
+    chat_type: str
+    user_id: int
+    if isinstance(message_or_callback_query, telebot.types.CallbackQuery):
+        if message_or_callback_query.message is None:
+            return False
+        chat_type = message_or_callback_query.message.chat.type
+        user_id = message_or_callback_query.from_user.id
+    else:
+        chat_type = message_or_callback_query.chat.type
+        user_id = message_or_callback_query.from_user.id
     logger.debug(
         msg={
             "comment": "check message type and user",
-            "user_id": message.from_user.id,
-            "message_type": message.chat.type,
+            "user_id": user_id,
+            "message_type": chat_type,
         }
     )
-    if message.chat.type != "private":
+    if chat_type != "private":
         return False
-    if message.from_user.id in expected_users:
+    if user_id in expected_users:
         return True
     return False
 
@@ -41,6 +52,18 @@ def start_bot(bot_token: str, expected_users_ids: tuple[int, ...]):
     )
     bot.message_handler(commands=["login"], func=check_function)(
         partial(message_processing.process_login, bot)
+    )
+    bot.message_handler(commands=["add_deck"], func=check_function)(
+        partial(message_processing.process_add_deck, bot)
+    )
+    bot.message_handler(commands=["decks"], func=check_function)(
+        partial(message_processing.process_decks, bot)
+    )
+    bot.message_handler(commands=["lang"], func=check_function)(
+        partial(message_processing.process_lang, bot)
+    )
+    bot.callback_query_handler(func=check_function)(
+        partial(message_processing.process_callback_query, bot)
     )
     # XXX: order of handlers matters
     bot.message_handler(content_types=["text"], func=check_function)(

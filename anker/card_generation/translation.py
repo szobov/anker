@@ -14,10 +14,23 @@ from spellchecker import SpellChecker
 
 logger = logging.getLogger(__name__)
 
+wordnet.config.allow_multithreading = True
+
+
+@functools.lru_cache(maxsize=1)
+def get_wordnet_mapping() -> dict[str, str]:
+    return {"en": "oewn:2021", "de": "odenet:1.4", "fi": "omw-fi:1.4"}
+
+
+# TODO: make readable languages names
+@functools.lru_cache(maxsize=1)
+def get_available_languages() -> tuple[str, ...]:
+    return tuple(get_wordnet_mapping().keys())
+
 
 @functools.lru_cache
 def get_wordnet_name_from_language_code(language_code: str) -> str:
-    mapping = {"en": "oewn:2021", "de": "odenet:1.4", "fi": "omw-fi:1.4"}
+    mapping = get_wordnet_mapping()
     assert language_code in mapping, language_code
     return mapping[language_code]
 
@@ -193,28 +206,30 @@ class TranslationResult:
     part_of_speech: _t.Optional[WordNetPartOfSpeech]
 
 
-def get_wordnet_translation(from_language: str, to_languge: str, text: str):
+def get_wordnet_translation(from_language: str, to_language: str, text: str):
     possible_words = wordnet.words(text, lang=from_language)
     if len(possible_words) == 0:
         return None
     # TODO: process several possible words
     word = possible_words[0]
-    translation_results = word.translate(lang=to_languge)
+    translation_results = word.translate(lang=to_language)
     translations: list[str] = []
-    for translation in translation_results.values():
+    for translation in itertools.chain(*translation_results.values()):
         translations.append(translation.lemma())
     if len(translations) == 0:
         return None
     return TranslationResult(
         word=text,
         from_language=from_language,
-        to_language=to_languge,
+        to_language=to_language,
         possible_translations=tuple(translations),
-        part_of_speech=WordNetPartOfSpeech(word.pos)
+        part_of_speech=WordNetPartOfSpeech(word.pos),
     )
 
 
-def get_translations(from_language: str, to_languge: str, input_text: str):
+def get_translations(
+    from_language: str, to_language: str, input_text: str
+) -> _t.Optional[TranslationResult]:
     if False:
         # TODO: pyspellcheck is not working properly
         text = spell_check(from_language, input_text)
@@ -229,25 +244,48 @@ def get_translations(from_language: str, to_languge: str, input_text: str):
             )
     else:
         text = input_text
-    if (result := get_wordnet_translation(from_language, to_languge, text)) is not None:
-        return result
+    wordnet_translation = get_wordnet_translation(from_language, to_language, text)
 
-    argos_translation = get_argostranslate(from_language, to_languge)
+    argos_translation = get_argostranslate(from_language, to_language)
     if argos_translation:
-        return TranslationResult(
-            word=text,
-            from_language=from_language,
-            to_language=to_languge,
-            possible_translations=argos_translation.translate_function(text),
-            part_of_speech=None
-        )
+        if wordnet_translation is None:
+            return TranslationResult(
+                word=text,
+                from_language=from_language,
+                to_language=to_language,
+                possible_translations=argos_translation.translate_function(text),
+                part_of_speech=None,
+            )
+        else:
+            return dataclasses.replace(
+                wordnet_translation,
+                possible_translations=(
+                    wordnet_translation.possible_translations
+                    + argos_translation.translate_function(text)
+                ),
+            )
+    return None
 
 
-def main():
+def format_translation_result_iterator(
+    translation: TranslationResult,
+) -> _t.Iterator[str]:
+    for possible_translation in translation.possible_translations:
+        if translation.part_of_speech:
+            yield f"({translation.part_of_speech.value}) {possible_translation}"
+        else:
+            yield possible_translation
+
+
+def initialize_translation_packages():
     langueges = ("en", "de", "fi")
     init_wordnet_lexicons(languages=langueges)
     init_argostranslate(languages=langueges)
-    print(get_translations("de", "fi", "die Katze"))
+
+
+def main():
+    initialize_translation_packages()
+    print(get_translations("de", "en", "Beruf"))
 
 
 if __name__ == "__main__":
