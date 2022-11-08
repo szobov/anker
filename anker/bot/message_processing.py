@@ -361,6 +361,9 @@ def _update_state_message_or_pin_new(
         )
         return message_id
     except telebot.apihelper.ApiTelegramException as ex:
+        logger.warning(
+            msg={"comment": "unable to update pinned message", "exception": str(ex)}
+        )
         if ex.error_code == 400:
             bot.unpin_chat_message(chat_id, message_id)
         return _create_state_message(bot, chat_id, state)
@@ -504,10 +507,27 @@ def _get_or_create_state_message(
         message_id, text = existing_state_message
         try:
             state = ClientState.from_encrypted(json.loads(text))
-        except json.JSONDecodeError:
-            ...
+        except json.JSONDecodeError as ex:
+            logger.warning(
+                msg={
+                    "comment": "unable to extract state message from a pinned message",
+                    "chat_id": chat_id,
+                    "exception": str(ex),
+                }
+            )
         if state is None:
+            logger.warning(
+                msg={
+                    "comment": "unpin last pinned message since it contains "
+                    "invalid state",
+                    "chat_id": chat_id,
+                }
+            )
             bot.unpin_chat_message(chat_id, message_id)
+    else:
+        logger.warning(
+            msg={"comment": "no pinned messages were found", "chat_id": chat_id}
+        )
     if state is not None:
         return state, message_id
     new_state = ClientState.identity()
@@ -521,12 +541,7 @@ def relogin_and_update_user_info(
     client_state: ClientState,
     state_message_id: int,
 ) -> tuple[ClientState, int] | None:
-    logger.info(
-        msg={
-            "comment": "relogin and update client state",
-            "chat_id": chat_id
-        }
-    )
+    logger.info(msg={"comment": "relogin and update client state", "chat_id": chat_id})
     user_info: UserInfo
     try:
         user_info = anki_api.login(
@@ -577,11 +592,12 @@ def anki_call_guard(
                 )
                 raise RuntimeError("Not able to relogin user")
             (cached_client_state, cached_state_message_id) = new_state
-        except Exception:
-            logger.info(
+        except Exception as ex:
+            logger.warning(
                 msg={
                     "comment": "We were not able to call anki function. Try one "
-                    "more time"
+                    "more time",
+                    "exception": str(ex),
                 }
             )
             continue

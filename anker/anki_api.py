@@ -5,6 +5,7 @@ import logging
 import typing as _t
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 from .types import (
@@ -17,6 +18,10 @@ from .types import (
     NoteTypeInfo,
     UserInfo,
 )
+
+# ankiuser.net uses self-signed certs which always bother urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +66,34 @@ def get_csrf_token(html_page: str) -> str:
     return csrf_input["value"]
 
 
+def _get_headers(is_xml_http_request: bool = False) -> dict[str, str]:
+    """It's not clear are those headers required or not, but from time to time
+    anki returns 403 errors. It could be either because many requests are sent
+    from one IP address to different accounts. That's not the whole list of the
+    headers browsers send.
+    """
+    headers = {
+        "pragma": "no-cache",
+        "cache-control": "no-cache",
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit"
+        "/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36",
+        "sec-ch-ua": '"Chromium";v="106", "Not;A=Brand";v="99"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Linux"',
+    }
+    if is_xml_http_request:
+        headers["x-requested-with"] = "XMLHttpRequest"
+    return headers
+
+
 def login(username: str, password: str) -> UserInfo:
     logger.info(msg={"comment": "login end extract token", "user": username})
     url = make_url(ANKI_BASE_URL_TYPE.WEB, "account/login")
-    login_page_response = requests.get(url, timeout=REQUEST_TIMEOUT_S)
+    login_page_response = requests.get(
+        url, timeout=REQUEST_TIMEOUT_S, headers=_get_headers()
+    )
     assert login_page_response.ok
 
     form = LoginForm(
@@ -72,11 +101,11 @@ def login(username: str, password: str) -> UserInfo:
         password=password,
         csrf_token=get_csrf_token(login_page_response.text),
     )
-
     response = requests.post(
         url,
         data=form.to_dict(),
         cookies=login_page_response.cookies,
+        headers=_get_headers(),
         timeout=REQUEST_TIMEOUT_S,
     )
     assert response.ok, response.text
@@ -89,7 +118,11 @@ def login(username: str, password: str) -> UserInfo:
 
     url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/")
     edit_page_response = requests.get(
-        url, cookies=token, verify=False, timeout=REQUEST_TIMEOUT_S
+        url,
+        cookies=token,
+        verify=False,
+        timeout=REQUEST_TIMEOUT_S,
+        headers=_get_headers(),
     )
     assert edit_page_response.ok, edit_page_response.text
     request_cookies = getattr(edit_page_response.request, "_cookies")
@@ -116,7 +149,7 @@ def create_deck(user_info: UserInfo, deck_name: str):
     logger.info(msg={"comment": "create a deck", "user": user_info.username})
     url = make_url(ANKI_BASE_URL_TYPE.WEB, "decks/create")
     data = {"name": deck_name}
-    headers = {"x-requested-with": "XMLHttpRequest"}
+    headers = _get_headers(is_xml_http_request=True)
     response = requests.get(
         url,
         cookies=user_info.token,
@@ -145,7 +178,11 @@ def get_decks_and_note_types(
     logger.info(msg={"comment": "get decks and note types", "user": user_info.username})
     url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/getAddInfo")
     response = requests.get(
-        url, cookies=user_info.token, verify=False, timeout=REQUEST_TIMEOUT_S
+        url,
+        cookies=user_info.token,
+        verify=False,
+        timeout=REQUEST_TIMEOUT_S,
+        headers=_get_headers(),
     )
     if response.status_code != 200:
         if response.status_code == 403:
@@ -185,6 +222,7 @@ def get_note_type_fields(
         params={"ntid": note_type.note_id},
         verify=False,
         timeout=REQUEST_TIMEOUT_S,
+        headers=_get_headers(),
     )
     if response.status_code != 200:
         if response.status_code == 403:
@@ -235,6 +273,7 @@ def add_card_to_deck(
         cookies=user_info.usernet_token,
         verify=False,
         timeout=REQUEST_TIMEOUT_S,
+        headers=_get_headers(),
     )
     if response.status_code != 200:
         if response.status_code == 403:
