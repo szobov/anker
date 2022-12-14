@@ -34,6 +34,8 @@ def _check_message_type_and_expected_users(
     )
     if chat_type != "private":
         return False
+    if len(expected_users) == 0:
+        return True
     if user_id in expected_users:
         return True
     return False
@@ -69,7 +71,7 @@ def start_bot(bot_token: str, expected_users_ids: tuple[int, ...]):
     bot.message_handler(content_types=["text"], func=check_function)(
         partial(message_processing.process_new_message, bot)
     )
-    bot.infinity_polling()
+    bot.infinity_polling(logger_level=None)
 
 
 def main():
@@ -77,9 +79,13 @@ def main():
     expected_users_ids_raw = os.getenv("ANKER_BOT_USERS")
     assert bot_token is not None
     assert expected_users_ids_raw is not None
-    expected_users_ids: tuple[int] = tuple(
-        map(int, expected_users_ids_raw.strip().split(","))
-    )
+    expected_users_ids_raw = expected_users_ids_raw.strip()
+    if expected_users_ids_raw == "":
+        expected_users_ids = ()
+    else:
+        expected_users_ids: tuple[int] = tuple(
+            map(int, expected_users_ids_raw.split(","))
+        )
     start_bot(bot_token=bot_token, expected_users_ids=expected_users_ids)
 
 

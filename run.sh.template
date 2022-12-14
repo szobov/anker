@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+# Create a bot token using the instruction from: https://core.telegram.org/bots#how-do-i-create-a-bot
+ANKER_BOT_TOKEN=""
+# List of telegram user ids separated by comma, e.g. "42,64" (means only messages from user with
+# ids 42 and 64 will be processed). One of the ways you can obtain those ids is using https://telegram.me/userinfobot
+# Leave it black if you expect your bot working with any user
+ANKER_BOT_USERS=""
+# A secret key, used to store sensitive data. To create a valid one please execute in command line:
+# `python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"`
+ANKER_PEPPER_KEY=""
+
+if [ "$ANKER_BOT_TOKEN" = "" ] || [ "$ANKER_PEPPER_KEY" = "" ]; then
+    echo "Please specify both ANKER_BOT_TOKEN and ANKER_PEPPER_KEY (in this script)"
+    exit 1
+fi
+
+ANKER_BOT_TOKEN=$ANKER_BOT_TOKEN ANKER_BOT_USERS=$ANKER_BOT_USERS ANKER_PEPPER_KEY=$ANKER_PEPPER_KEY python run.py
