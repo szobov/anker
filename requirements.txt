@@ -6,3 +6,6 @@ argostranslate>=1.7.0
 pyspellchecker>=0.7.0
 cryptography>=38.0.1
 pyTelegramBotAPI>=4.7.1
+sacremoses>=0.0.53
+transformers>=4.30.0
+huggingface-hub>=0.15.1
