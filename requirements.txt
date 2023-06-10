@@ -1,4 +1,4 @@
-beautifulsoup4 >= 4.11.1
+beautifulsoup4>=4.11.1
 requests>=2.28.1
 lxml>=4.9.1
 wn>=0.9.2
@@ -9,3 +9,6 @@ pyTelegramBotAPI>=4.7.1
 sacremoses>=0.0.53
 transformers>=4.30.0
 huggingface-hub>=0.15.1
+Pillow>=9.2.0
+qrcode>=7.4.2
+pyzbar>=0.1.9
