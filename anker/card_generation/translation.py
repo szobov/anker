@@ -9,12 +9,19 @@ import typing as _t
 
 import argostranslate.package
 import argostranslate.translate
+
+from huggingface_hub import list_models
+from transformers import MarianMTModel, MarianTokenizer
+
 import wn as wordnet
 from spellchecker import SpellChecker
 
 logger = logging.getLogger(__name__)
 
 wordnet.config.allow_multithreading = True
+
+MARIAM_MODEL_ORG = "Helsinki-NLP"
+MARIAM_MODEL_PREFIX = f"{MARIAM_MODEL_ORG}/opus-mt-"
 
 
 @functools.lru_cache(maxsize=1)
@@ -43,7 +50,7 @@ def spell_check(language: str, text: str) -> str:
             case 0:
                 return word
             case _:
-                return spell_checker.correction(word)
+                return spell_checker.correction(word) or word
 
     return " ".join(map(_, text.split()))
 
@@ -170,6 +177,46 @@ def get_argostranslate(
     return None
 
 
+@functools.lru_cache
+def _get_mariam_model_and_tokenizer(
+    from_lang: str, to_lang: str
+) -> tuple[MarianMTModel, MarianTokenizer]:
+    model_name = f"{MARIAM_MODEL_PREFIX}{from_lang}-{to_lang}"
+    tokenizer = MarianTokenizer.from_pretrained(model_name)
+    model = MarianMTModel.from_pretrained(model_name)
+    return model, tokenizer
+
+
+def init_mariam_translate(languages: tuple[str, ...]) -> None:
+    model_list = list_models()
+    model_ids = [
+        x.modelId for x in model_list if x.modelId.startswith(MARIAM_MODEL_ORG)
+    ]
+    language_mappings = {tuple(x.split("/")[1].split("-")[-2:]): x for x in model_ids}
+
+    for language_from, language_to in itertools.permutations(languages, r=2):
+        model_name = language_mappings.get((language_from, language_to))
+        if model_name:
+            _get_mariam_model_and_tokenizer(language_from, language_to)
+
+        model_to_fallback = language_mappings.get(
+            (language_from, ARGOS_FALLBACK_LANGUAGE)
+        )
+        model_from_fallback = language_mappings.get(
+            (ARGOS_FALLBACK_LANGUAGE, language_to)
+        )
+        if model_from_fallback and model_to_fallback:
+            _get_mariam_model_and_tokenizer(language_from, ARGOS_FALLBACK_LANGUAGE)
+            _get_mariam_model_and_tokenizer(ARGOS_FALLBACK_LANGUAGE, language_to)
+
+
+@functools.lru_cache
+def get_mariam_translation(from_language: str, to_language: str, text: str) -> str:
+    model, tokenizer = _get_mariam_model_and_tokenizer(from_language, to_language)
+    translated = model.generate(**tokenizer(text, return_tensors="pt", padding=True))
+    return " ".join(tokenizer.decode(t, skip_special_tokens=True) for t in translated)
+
+
 @enum.unique
 class WordNetPartOfSpeech(enum.Enum):
     ADJ = "a"
@@ -244,27 +291,33 @@ def get_translations(
             )
     else:
         text = input_text
-    wordnet_translation = get_wordnet_translation(from_language, to_language, text)
+
+    mariam_translation = get_mariam_translation(from_language, to_language, text)
+    possible_translations: tuple[str, ...] = (mariam_translation,)
 
     argos_translation = get_argostranslate(from_language, to_language)
     if argos_translation:
-        if wordnet_translation is None:
-            return TranslationResult(
-                word=text,
-                from_language=from_language,
-                to_language=to_language,
-                possible_translations=argos_translation.translate_function(text),
-                part_of_speech=None,
-            )
-        else:
-            return dataclasses.replace(
-                wordnet_translation,
-                possible_translations=(
-                    wordnet_translation.possible_translations
-                    + argos_translation.translate_function(text)
-                ),
-            )
-    return None
+        possible_translations = (
+            argos_translation.translate_function(text) + possible_translations
+        )
+
+    wordnet_translation = get_wordnet_translation(from_language, to_language, text)
+
+    if wordnet_translation is None:
+        return TranslationResult(
+            word=text,
+            from_language=from_language,
+            to_language=to_language,
+            possible_translations=possible_translations,
+            part_of_speech=None,
+        )
+    else:
+        return dataclasses.replace(
+            wordnet_translation,
+            possible_translations=(
+                wordnet_translation.possible_translations + possible_translations
+            ),
+        )
 
 
 def format_translation_result_iterator(
@@ -281,6 +334,7 @@ def initialize_translation_packages():
     langueges = ("en", "de", "fi")
     init_wordnet_lexicons(languages=langueges)
     init_argostranslate(languages=langueges)
+    init_mariam_translate(languages=langueges)
 
 
 def main():
