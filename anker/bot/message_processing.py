@@ -11,6 +11,7 @@ from anker import anki_api
 from anker.bot.client_state import ClientState, ClientStates
 from anker.card_generation import translation
 from anker.types import UserInfo
+from anker.bot import sticker_storage
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,9 @@ GET_DECKS_BATCH_SIZE = 10
 
 def process_new_message(bot: telebot.TeleBot, message: telebot.types.Message):
     chat_id = message.chat.id
-    client_state, state_message_id = _get_or_create_state_message(bot, chat_id)
+    client_state, state_message_id = _get_or_create_state_message(
+        bot, chat_id, message.from_user.id
+    )
     match client_state.state:
         case ClientStates.UNAUTHORIZED:
             bot.reply_to(message, "Use /login first to let bot access anki")
@@ -39,7 +42,9 @@ def process_callback_query(
 ):
     message = callback_query.message
     chat_id = message.chat.id
-    client_state, state_message_id = _get_or_create_state_message(bot, chat_id)
+    client_state, state_message_id = _get_or_create_state_message(
+        bot, chat_id, message.from_user.id
+    )
     match client_state.state:
         case ClientStates.SELECT_DECK:
             _process_select_deck(bot, callback_query, client_state, state_message_id)
@@ -66,7 +71,7 @@ I'll also pin a message with technical information for the bot. It's required an
 *must not* be unpinned.
 """,
     )
-    _get_or_create_state_message(bot, message.chat.id)
+    _get_or_create_state_message(bot, message.chat.id, message.from_user.id)
 
 
 def process_login(bot: telebot.TeleBot, message: telebot.types.Message):
@@ -74,21 +79,29 @@ def process_login(bot: telebot.TeleBot, message: telebot.types.Message):
         msg={"comment": "process authentication", "user": message.from_user.id}
     )
     chat_id = message.chat.id
-    (client_state, message_id) = _get_or_create_state_message(bot, chat_id)
+    (client_state, message_id) = _get_or_create_state_message(
+        bot, chat_id, message.from_user.id
+    )
     if client_state.state != ClientStates.SET_USER_EMAIL:
         new_client_state = client_state.make_from(state=ClientStates.SET_USER_EMAIL)
-        _update_state_message_or_pin_new(bot, new_client_state, message_id, chat_id)
+        _update_state_message_or_pin_new(
+            bot, new_client_state, message_id, chat_id, message.from_user.id
+        )
     bot.reply_to(message, "Send me an email")
 
 
 def process_lang(bot: telebot.TeleBot, message: telebot.types.Message):
     logger.info(msg={"comment": "process language", "user": message.from_user.id})
     chat_id = message.chat.id
-    (client_state, message_id) = _get_or_create_state_message(bot, chat_id)
+    (client_state, message_id) = _get_or_create_state_message(
+        bot, chat_id, message.from_user.id
+    )
     new_client_state = client_state.make_from(
         language_to="", language_from="", state=ClientStates.SELECT_LANG
     )
-    _update_state_message_or_pin_new(bot, new_client_state, message_id, chat_id)
+    _update_state_message_or_pin_new(
+        bot, new_client_state, message_id, chat_id, message.from_user.id
+    )
 
     bot.reply_to(
         message,
@@ -100,15 +113,21 @@ def process_lang(bot: telebot.TeleBot, message: telebot.types.Message):
 def process_decks(bot: telebot.TeleBot, message: telebot.types.Message):
     logger.info(msg={"comment": "process deck command"})
     chat_id = message.chat.id
-    (client_state, state_message_id) = _get_or_create_state_message(bot, chat_id)
+    user_id = message.from_user.id
+    (client_state, state_message_id) = _get_or_create_state_message(
+        bot, chat_id, user_id
+    )
     if client_state.anki_user_info is None:
         bot.reply_to(message, "Please use /login first")
         return
     new_client_state = client_state.make_from(state=ClientStates.SELECT_DECK)
-    _update_state_message_or_pin_new(bot, new_client_state, state_message_id, chat_id)
+    _update_state_message_or_pin_new(
+        bot, new_client_state, state_message_id, chat_id, user_id
+    )
     (client_state, state_message_id, (decks_map, _)) = anki_call_guard(
         bot,
         chat_id,
+        user_id,
         client_state,
         state_message_id,
         lambda: anki_api.get_decks_and_note_types(
@@ -122,7 +141,9 @@ def process_decks(bot: telebot.TeleBot, message: telebot.types.Message):
 def process_add_deck(bot: telebot.TeleBot, message: telebot.types.Message):
     logger.info(msg={"comment": "add a deck"})
     chat_id = message.chat.id
-    _set_new_client_state(bot, chat_id, ClientStates.CREATE_NEW_DECK)
+    _set_new_client_state(
+        bot, chat_id, message.from_user.id, ClientStates.CREATE_NEW_DECK
+    )
     bot.reply_to(message, "Send me a name of a new deck")
 
 
@@ -139,10 +160,12 @@ def _process_select_language(
     if lang not in available_languages:
         bot.send_message(chat_id, f"Unknown language '{lang}', please call /lang again")
         return
+    user_id = chat_id
     if client_state.language_from == "":
+        logger.info(msg={"comment": "select language from", "user_id": user_id})
         new_client_state = client_state.make_from(language_from=lang)
         _update_state_message_or_pin_new(
-            bot, new_client_state, state_message_id, chat_id
+            bot, new_client_state, state_message_id, chat_id, user_id
         )
         bot.reply_to(
             callback_query.message,
@@ -150,10 +173,14 @@ def _process_select_language(
             reply_markup=_get_languages_message(except_language=lang),
         )
         return
+
+    logger.info(msg={"comment": "languages are selected", "user_id": user_id})
     new_client_state = client_state.make_from(
         language_to=lang, state=ClientStates.AUTHORIZED
     )
-    _update_state_message_or_pin_new(bot, new_client_state, state_message_id, chat_id)
+    _update_state_message_or_pin_new(
+        bot, new_client_state, state_message_id, chat_id, user_id
+    )
     bot.reply_to(
         callback_query.message,
         f"Languages are selected. From '{new_client_state.language_from}' to "
@@ -170,6 +197,7 @@ def _process_select_deck(
 ):
     logger.info(msg={"comment": "select a deck"})
     chat_id = callback_query.message.chat.id
+    user_id = chat_id
     if client_state.anki_user_info is None:
         bot.send_message(chat_id, "Please use /login first")
         return
@@ -178,6 +206,7 @@ def _process_select_deck(
     (client_state, state_message_id, (decks_map, note_types)) = anki_call_guard(
         bot,
         chat_id,
+        user_id,
         client_state,
         state_message_id,
         lambda: anki_api.get_decks_and_note_types(
@@ -207,7 +236,13 @@ def _process_select_deck(
         state=ClientStates.AUTHORIZED,
         anki_note_type_info=note_type,
     )
-    _update_state_message_or_pin_new(bot, new_client_state, state_message_id, chat_id)
+    _update_state_message_or_pin_new(
+        bot,
+        new_client_state,
+        state_message_id,
+        chat_id,
+        chat_id,
+    )
     bot.send_message(chat_id, f"Deck '{deck_info.deck_name}' was selected")
 
 
@@ -274,10 +309,12 @@ def _process_select_translation(
     assert client_state.anki_note_type_info is not None
     assert client_state.anki_user_info is not None
     chat_id = callback_query.message.chat.id
+    user_id = chat_id
 
     (client_state, state_message_id, note_type_fields) = anki_call_guard(
         bot,
         chat_id,
+        user_id,
         client_state,
         state_message_id,
         lambda: anki_api.get_note_type_fields(
@@ -297,6 +334,7 @@ def _process_select_translation(
     (client_state, state_message_id, _) = anki_call_guard(
         bot,
         chat_id,
+        user_id,
         client_state,
         state_message_id,
         lambda: anki_api.add_card_to_deck(
@@ -322,9 +360,11 @@ def _process_create_new_deck(
         bot.reply_to(message, "Please use /login first")
         return
     chat_id = message.chat.id
+    user_id = message.from_user.id
     (client_state, state_message_id, _) = anki_call_guard(
         bot,
         chat_id,
+        user_id,
         client_state,
         state_message_id,
         lambda: anki_api.create_deck(
@@ -332,15 +372,21 @@ def _process_create_new_deck(
         ),
     )
     new_client_state = client_state.make_from(state=ClientStates.AUTHORIZED)
-    _update_state_message_or_pin_new(bot, new_client_state, state_message_id, chat_id)
+    _update_state_message_or_pin_new(
+        bot, new_client_state, state_message_id, chat_id, message.from_user.id
+    )
     bot.reply_to(message, "Deck is created. Use /decks to select it now")
 
 
-def _set_new_client_state(bot: telebot.TeleBot, chat_id: int, new_state: ClientStates):
-    (client_state, message_id) = _get_or_create_state_message(bot, chat_id)
+def _set_new_client_state(
+    bot: telebot.TeleBot, chat_id: int, user_id: int, new_state: ClientStates
+):
+    (client_state, message_id) = _get_or_create_state_message(bot, chat_id, user_id)
     if client_state.state != new_state:
         new_client_state = client_state.make_from(state=new_state)
-        _update_state_message_or_pin_new(bot, new_client_state, message_id, chat_id)
+        _update_state_message_or_pin_new(
+            bot, new_client_state, message_id, chat_id, user_id
+        )
 
 
 def _get_pinned_message_id_and_text(
@@ -353,17 +399,26 @@ def _get_pinned_message_id_and_text(
 
 
 def _update_state_message_or_pin_new(
-    bot: telebot.TeleBot, state: ClientState, message_id: int, chat_id: int
+    bot: telebot.TeleBot,
+    state: ClientState,
+    message_id: int,
+    chat_id: int,
+    user_id: int,
 ) -> int:
     try:
+        encrypted_state = state.get_encrypted()
         bot.edit_message_text(
-            json.dumps(state.get_encrypted()), chat_id=chat_id, message_id=message_id
+            json.dumps(encrypted_state), chat_id=chat_id, message_id=message_id
         )
+        sticker_storage.upsert_data_in_sticker_set(bot, user_id, encrypted_state)
         return message_id
     except telebot.apihelper.ApiTelegramException as ex:
+        logger.warning(
+            msg={"comment": "unable to update pinned message", "exception": str(ex)}
+        )
         if ex.error_code == 400:
             bot.unpin_chat_message(chat_id, message_id)
-        return _create_state_message(bot, chat_id, state)
+        return _create_state_message(bot, chat_id, user_id, state)
 
 
 def _get_decks_messages(
@@ -409,7 +464,7 @@ def _process_set_password(
     if client_state.anki_user_email == "":
         new_client_state = client_state.make_from(state=ClientStates.SET_USER_EMAIL)
         _update_state_message_or_pin_new(
-            bot, new_client_state, state_message_id, chat_id
+            bot, new_client_state, state_message_id, chat_id, message.from_user.id
         )
         bot.send_message(chat_id=chat_id, text="Please send email first")
         return
@@ -439,7 +494,7 @@ def _process_set_password(
         anki_user_info=user_info,
     )
     _update_state_message_or_pin_new(
-        bot, new_client_state, state_message_id, message.chat.id
+        bot, new_client_state, state_message_id, message.chat.id, message.from_user.id
     )
     if new_client_state.anki_deck_info is None:
         # TODO: put here a list of decks
@@ -477,26 +532,28 @@ def _process_set_user_email(
         anki_user_email=user_email, state=ClientStates.SET_PASSWORD
     )
     _update_state_message_or_pin_new(
-        bot, new_client_state, state_message_id, message.chat.id
+        bot, new_client_state, state_message_id, message.chat.id, message.from_user.id
     )
     bot.reply_to(message, "Send me a password (it won't be store on the server)")
 
 
 def _create_state_message(
-    bot: telebot.TeleBot, chat_id: int, state: ClientState
+    bot: telebot.TeleBot, chat_id: int, user_id: int, state: ClientState
 ) -> int:
-    state_message = bot.send_message(chat_id, json.dumps(state.get_encrypted()))
+    state_data = state.get_encrypted()
+    state_message = bot.send_message(chat_id, json.dumps(state_data))
 
     bot.pin_chat_message(
         chat_id=chat_id,
         message_id=state_message.message_id,
         disable_notification=True,
     )
+    sticker_storage.upsert_data_in_sticker_set(bot, user_id, state_data)
     return state_message.message_id
 
 
 def _get_or_create_state_message(
-    bot: telebot.TeleBot, chat_id: int
+    bot: telebot.TeleBot, chat_id: int, user_id: int
 ) -> tuple[ClientState, int]:
     existing_state_message = _get_pinned_message_id_and_text(bot, chat_id)
     state = None
@@ -504,29 +561,49 @@ def _get_or_create_state_message(
         message_id, text = existing_state_message
         try:
             state = ClientState.from_encrypted(json.loads(text))
-        except json.JSONDecodeError:
-            ...
+        except json.JSONDecodeError as ex:
+            logger.warning(
+                msg={
+                    "comment": "unable to extract state message from a pinned message",
+                    "chat_id": chat_id,
+                    "exception": str(ex),
+                }
+            )
         if state is None:
+            logger.warning(
+                msg={
+                    "comment": "unpin last pinned message since it contains "
+                    "invalid state",
+                    "chat_id": chat_id,
+                }
+            )
             bot.unpin_chat_message(chat_id, message_id)
+    else:
+        logger.warning(
+            msg={"comment": "no pinned messages were found", "chat_id": chat_id}
+        )
     if state is not None:
         return state, message_id
-    new_state = ClientState.identity()
-    new_state_message_id = _create_state_message(bot, chat_id, new_state)
-    return new_state, new_state_message_id
+
+    if (
+        sticker_data := sticker_storage.get_data_from_sticker_set_for_user(bot, user_id)
+    ) is not None:
+        state = ClientState.from_encrypted(sticker_data)
+
+    if state is None:
+        state = ClientState.identity()
+    new_state_message_id = _create_state_message(bot, chat_id, user_id, state)
+    return state, new_state_message_id
 
 
 def relogin_and_update_user_info(
     bot: telebot.TeleBot,
     chat_id: int,
+    user_id: int,
     client_state: ClientState,
     state_message_id: int,
 ) -> tuple[ClientState, int] | None:
-    logger.info(
-        msg={
-            "comment": "relogin and update client state",
-            "chat_id": chat_id
-        }
-    )
+    logger.info(msg={"comment": "relogin and update client state", "chat_id": chat_id})
     user_info: UserInfo
     try:
         user_info = anki_api.login(
@@ -543,7 +620,7 @@ def relogin_and_update_user_info(
         return None
     new_client_state = client_state.make_from(anki_user_info=user_info)
     new_state_message_id = _update_state_message_or_pin_new(
-        bot, new_client_state, state_message_id, chat_id
+        bot, new_client_state, state_message_id, chat_id, user_id
     )
     return new_client_state, new_state_message_id
 
@@ -554,6 +631,7 @@ T = _t.TypeVar("T")
 def anki_call_guard(
     bot: telebot.TeleBot,
     chat_id: int,
+    user_id: int,
     client_state: ClientState,
     state_message_id: int,
     wrapped_func: _t.Callable[[], T],
@@ -567,7 +645,7 @@ def anki_call_guard(
             return (cached_client_state, cached_state_message_id, result)
         except anki_api.AnkiAuthorizationException:
             new_state = relogin_and_update_user_info(
-                bot, chat_id, cached_client_state, cached_state_message_id
+                bot, chat_id, user_id, cached_client_state, cached_state_message_id
             )
             if new_state is None:
                 bot.send_message(
@@ -577,11 +655,12 @@ def anki_call_guard(
                 )
                 raise RuntimeError("Not able to relogin user")
             (cached_client_state, cached_state_message_id) = new_state
-        except Exception:
-            logger.info(
+        except Exception as ex:
+            logger.warning(
                 msg={
                     "comment": "We were not able to call anki function. Try one "
-                    "more time"
+                    "more time",
+                    "exception": str(ex),
                 }
             )
             continue
