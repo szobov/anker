@@ -7,7 +7,9 @@ ANKER_BOT_TOKEN=""
 # Leave it black if you expect your bot working with any user
 ANKER_BOT_USERS=""
 # A secret key, used to store sensitive data. To create a valid one please execute in command line:
-# `python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"`
+# `python3 -m pip install cryptography`
+# `python3 -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"`
+# and copy the output here.
 ANKER_PEPPER_KEY=""
 
 if [ "$ANKER_BOT_TOKEN" = "" ] || [ "$ANKER_PEPPER_KEY" = "" ]; then
