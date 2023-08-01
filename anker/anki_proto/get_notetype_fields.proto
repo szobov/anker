@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+import "anker/anki_proto/add_info.proto";
+
+message GetNotetypeFieldsRequest {
+  uint64 notetypeId = 1;
+}
+
+message GetNotetypeFieldsResponse {
+  repeated Field fields = 1;
+}

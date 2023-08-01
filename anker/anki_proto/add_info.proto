@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+message Config {
+  bool sticky = 1;
+  bool rtl = 2;
+  string fontName = 3;
+  uint64 fontSize = 4;
+  string description = 5;
+  bool plainText = 6;
+  bool collapsed = 7;
+  bool excludeFromSearch = 8;
+  bytes other = 255; // Assuming other is a binary data
+}
+
+message Ord {
+  uint64 val = 1;
+}
+
+message Field {
+  Ord ord = 1;
+  string name = 2;
+  Config config = 5;
+}
+
+message NoteType {
+  uint64 id = 1;
+  string name = 2;
+}
+
+message Deck {
+  uint64 id = 1;
+  string name = 2;
+}
+
+message AddInfo {
+  repeated NoteType notetypes = 1;
+  repeated Deck decks = 2;
+  uint64 currentDeckId = 3;
+  uint64 currentNotetypeId = 4;
+  repeated Field fields = 5;
+}
