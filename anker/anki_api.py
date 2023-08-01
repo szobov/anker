@@ -241,6 +241,8 @@ def main():
 
     password = os.getenv("ANKI_PASSWORD")
     username = os.getenv("ANKI_USERNAME")
+    assert password is not None
+    assert username is not None
     user_info = login(username=username, password=password)
     test_deck_name = "New Тест Deck 2"
     create_deck(user_info, test_deck_name)

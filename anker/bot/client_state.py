@@ -23,7 +23,7 @@ class ClientStates(enum.IntEnum):
 
 
 def _filter_unexpected_fields_for_dataclass(
-    data: dict[str, _t.Any], expected_fields: _t.Iterable[dataclasses.Field]
+    data: _t.Mapping[str, _t.Any], expected_fields: _t.Iterable[dataclasses.Field]
 ) -> dict[str, _t.Any]:
     expected_field_names = {f.name for f in expected_fields}
     return {k: v for k, v in data.items() if k in expected_field_names}

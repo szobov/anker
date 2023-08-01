@@ -80,12 +80,11 @@ def main():
     assert bot_token is not None
     assert expected_users_ids_raw is not None
     expected_users_ids_raw = expected_users_ids_raw.strip()
+    expected_users_ids: tuple[int, ...]
     if expected_users_ids_raw == "":
         expected_users_ids = ()
     else:
-        expected_users_ids: tuple[int] = tuple(
-            map(int, expected_users_ids_raw.split(","))
-        )
+        expected_users_ids = tuple(map(int, expected_users_ids_raw.split(",")))
     start_bot(bot_token=bot_token, expected_users_ids=expected_users_ids)
 
 
