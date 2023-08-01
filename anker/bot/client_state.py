@@ -22,6 +22,13 @@ class ClientStates(enum.IntEnum):
     SELECT_LANG = 7
 
 
+def _filter_unexpected_fields_for_dataclass(
+    data: dict[str, _t.Any], expected_fields: _t.Iterable[dataclasses.Field]
+) -> dict[str, _t.Any]:
+    expected_field_names = {f.name for f in expected_fields}
+    return {k: v for k, v in data.items() if k in expected_field_names}
+
+
 @dataclasses.dataclass(frozen=True)
 class ClientState:
     anki_user_email: str
@@ -82,17 +89,29 @@ class ClientState:
             if data["anki_user_info"] and isinstance(
                 data["anki_user_info"], _t.Mapping
             ):
-                anki_user_info = UserInfo(**data["anki_user_info"])
+                anki_user_info = UserInfo(
+                    **_filter_unexpected_fields_for_dataclass(
+                        data["anki_user_info"], dataclasses.fields(UserInfo)
+                    )
+                )
             anki_deck_info = None
             if data["anki_deck_info"] and isinstance(
                 data["anki_deck_info"], _t.Mapping
             ):
-                anki_deck_info = DeckInfo(**data["anki_deck_info"])
+                anki_deck_info = DeckInfo(
+                    **_filter_unexpected_fields_for_dataclass(
+                        data["anki_deck_info"], dataclasses.fields(DeckInfo)
+                    )
+                )
             anki_note_type_info = None
             if data["anki_note_type_info"] and isinstance(
                 data["anki_note_type_info"], _t.Mapping
             ):
-                anki_note_type_info = NoteTypeInfo(**data["anki_note_type_info"])
+                anki_note_type_info = NoteTypeInfo(
+                    **_filter_unexpected_fields_for_dataclass(
+                        data["anki_note_type_info"], dataclasses.fields(NoteTypeInfo)
+                    )
+                )
             return cls(
                 anki_user_email=data["anki_user_email"],
                 anki_password=encryption.decrypt_message(data["anki_password"]),
@@ -103,7 +122,7 @@ class ClientState:
                 anki_deck_info=anki_deck_info,
                 anki_note_type_info=anki_note_type_info,
             )
-        except (KeyError, RuntimeError):
+        except (KeyError, RuntimeError, TypeError):
             logger.exception(
                 msg={"comment": "Catch an exception while parsing client's state"}
             )

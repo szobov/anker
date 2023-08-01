@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-import json
 import logging
-import typing as _t
 
 import requests
-import urllib3
-from bs4 import BeautifulSoup
+
+from .anki_proto import (
+    first_login_pb2,
+    login_pb2,
+    create_deck_pb2,
+    add_info_pb2,
+    get_notetype_fields_pb2,
+    add_note_pb2,
+)
+
 
 from .types import (
     ANKI_BASE_URL_TYPE,
@@ -14,14 +20,9 @@ from .types import (
     CardInfo,
     DeckInfo,
     FieldInfo,
-    LoginForm,
     NoteTypeInfo,
     UserInfo,
 )
-
-# ankiuser.net uses self-signed certs which always bother urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 
 logger = logging.getLogger(__name__)
 
@@ -47,42 +48,8 @@ def make_url(base_url_type: ANKI_BASE_URL_TYPE, endpoint: str) -> str:
     return f"{base_url}/{endpoint}"
 
 
-def get_card_csrf_token(html_page: str) -> str:
-    start_token = "new anki.Editor('"
-    start_substring_index = html_page.find(start_token)
-    if start_substring_index == -1:
-        raise RuntimeError
-    start_substring_index += len(start_token)
-    end_substing_index = start_substring_index + html_page[start_substring_index:].find(
-        "',"
-    )
-    return html_page[start_substring_index:end_substing_index]
-
-
-def get_csrf_token(html_page: str) -> str:
-    html = BeautifulSoup(html_page, features="lxml")
-    csrf_input = html.select_one("input[name='csrf_token']")
-    assert csrf_input is not None, csrf_input
-    return csrf_input["value"]
-
-
 def _get_headers(is_xml_http_request: bool = False) -> dict[str, str]:
-    """It's not clear are those headers required or not, but from time to time
-    anki returns 403 errors. It could be either because many requests are sent
-    from one IP address to different accounts. That's not the whole list of the
-    headers browsers send.
-    """
-    headers = {
-        "pragma": "no-cache",
-        "cache-control": "no-cache",
-        "accept": "*/*",
-        "accept-language": "en-US,en;q=0.9",
-        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit"
-        "/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36",
-        "sec-ch-ua": '"Chromium";v="106", "Not;A=Brand";v="99"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Linux"',
-    }
+    headers = {"Content-Type": "application/octet-stream"}
     if is_xml_http_request:
         headers["x-requested-with"] = "XMLHttpRequest"
     return headers
@@ -90,82 +57,76 @@ def _get_headers(is_xml_http_request: bool = False) -> dict[str, str]:
 
 def login(username: str, password: str) -> UserInfo:
     logger.info(msg={"comment": "login end extract token", "user": username})
-    url = make_url(ANKI_BASE_URL_TYPE.WEB, "account/login")
-    login_page_response = requests.get(
-        url, timeout=REQUEST_TIMEOUT_S, headers=_get_headers()
-    )
-    assert login_page_response.ok
+    url = make_url(ANKI_BASE_URL_TYPE.WEB, "svc/account/login")
 
-    form = LoginForm(
-        username=username,
-        password=password,
-        csrf_token=get_csrf_token(login_page_response.text),
-    )
-    response = requests.post(
+    first_login_msg = first_login_pb2.FirstLogin()
+    first_login_msg.login = username
+    first_login_msg.password = password
+
+    ankiweb_login_response = requests.post(
         url,
-        data=form.to_dict(),
-        cookies=login_page_response.cookies,
         headers=_get_headers(),
+        data=first_login_msg.SerializeToString(),
         timeout=REQUEST_TIMEOUT_S,
     )
-    assert response.ok, response.text
+
+    assert ankiweb_login_response.ok, ankiweb_login_response.content
+
+    msg = login_pb2.LoginResponse()
+    msg.ParseFromString(ankiweb_login_response.content)
+
+    assert msg.status == login_pb2.LOGIN_RESPONSE_STATUS_AUTHENTICATED, msg.status
+
+    url = make_url(ANKI_BASE_URL_TYPE.USER, "account/ankiuser-login")
+    ankiuser_login_response = requests.get(
+        url,
+        params={"t": msg.token},
+        allow_redirects=True,
+        timeout=REQUEST_TIMEOUT_S,
+    )
+    assert ankiuser_login_response.ok, ankiuser_login_response.content
+
     request_cookies: requests.cookies.RequestsCookieJar = getattr(
-        response.request, "_cookies"
+        ankiuser_login_response.request, "_cookies"
     )
     assert ANKI_COOKIE_NAME in request_cookies, request_cookies
     logger.info(msg={"comment": "token is extracted", "user": username})
-    token = {ANKI_COOKIE_NAME: request_cookies[ANKI_COOKIE_NAME]}
-
-    url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/")
-    edit_page_response = requests.get(
-        url,
-        cookies=token,
-        verify=False,
-        timeout=REQUEST_TIMEOUT_S,
-        headers=_get_headers(),
-    )
-    assert edit_page_response.ok, edit_page_response.text
-    request_cookies = getattr(edit_page_response.request, "_cookies")
-    usernet_token = next(
-        filter(
-            lambda c: c.domain == ANKIUSER_DOMAIN and c.name == ANKI_COOKIE_NAME,
-            request_cookies,
-        ),
-        None,
-    )
-    assert usernet_token
-    assert usernet_token.value
-    card_token = get_card_csrf_token(edit_page_response.text)
-
-    return UserInfo(
-        username=username,
-        token=token,
-        usernet_token={ANKI_COOKIE_NAME: usernet_token.value},
-        card_token=card_token,
-    )
+    usernet_token = {
+        ANKI_COOKIE_NAME: request_cookies[ANKI_COOKIE_NAME],
+        "has_auth": "1",
+    }
+    ankiweb_token = {
+        ANKI_COOKIE_NAME: ankiweb_login_response.cookies[ANKI_COOKIE_NAME],
+        "has_auth": "1",
+    }
+    return UserInfo(username=username, token=ankiweb_token, usernet_token=usernet_token)
 
 
 def create_deck(user_info: UserInfo, deck_name: str):
     logger.info(msg={"comment": "create a deck", "user": user_info.username})
     url = make_url(ANKI_BASE_URL_TYPE.WEB, "decks/create")
-    data = {"name": deck_name}
+
+    create_deck_msg = create_deck_pb2.CreateDeck()
+    create_deck_msg.name = deck_name
+
     headers = _get_headers(is_xml_http_request=True)
-    response = requests.get(
+    url = make_url(ANKI_BASE_URL_TYPE.WEB, "svc/decks/create-deck")
+    create_deck_response = requests.post(
         url,
         cookies=user_info.token,
-        params=data,
         headers=headers,
+        data=create_deck_msg.SerializeToString(),
         timeout=REQUEST_TIMEOUT_S,
     )
-    if not response.ok:
+    if not create_deck_response.ok:
         logger.warning(
             msg={
                 "comment": "failed to create a deck",
-                "response": response.text,
-                "status": response.status_code,
+                "response": create_deck_response.text,
+                "status": create_deck_response.status_code,
             }
         )
-        if response.status_code == 403:
+        if create_deck_response.status_code == 403:
             raise AnkiAuthorizationException()
         raise RuntimeError  # TODO: use packet-wide exceptions
 
@@ -176,31 +137,26 @@ def get_decks_and_note_types(
     user_info: UserInfo,
 ) -> tuple[dict[str, DeckInfo], dict[str, NoteTypeInfo]]:
     logger.info(msg={"comment": "get decks and note types", "user": user_info.username})
-    url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/getAddInfo")
-    response = requests.get(
+    url = make_url(ANKI_BASE_URL_TYPE.USER, "svc/editor/get-info-for-adding")
+    response = requests.post(
         url,
-        cookies=user_info.token,
-        verify=False,
+        cookies=user_info.usernet_token,
         timeout=REQUEST_TIMEOUT_S,
         headers=_get_headers(),
     )
-    if response.status_code != 200:
+    if not response.ok:
         if response.status_code == 403:
             raise AnkiAuthorizationException()
         raise RuntimeError  # TODO: use packet-wide exceptions
-    content: dict[str, _t.Any] = {}
-    try:
-        content = response.json()
-    except requests.exceptions.JSONDecodeError:
-        logger.exception(msg={""})
-        raise RuntimeError("")
+
+    add_info_msg = add_info_pb2.AddInfo()
+    add_info_msg.ParseFromString(response.content)
     decks: dict[str, DeckInfo] = {
-        d["name"]: DeckInfo(deck_name=d["name"], deck_id=d["id"])
-        for d in content["decks"]
+        d.name: DeckInfo(deck_name=d.name, deck_id=d.id) for d in add_info_msg.decks
     }
     note_types: dict[str, NoteTypeInfo] = {
-        n["name"]: NoteTypeInfo(note_id=n["id"], note_name=n["name"])
-        for n in content["notetypes"]
+        n.name: NoteTypeInfo(note_id=n.id, note_name=n.name)
+        for n in add_info_msg.notetypes
     }
     return decks, note_types
 
@@ -215,25 +171,31 @@ def get_note_type_fields(
             "note": note_type,
         }
     )
-    url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/getNotetypeFields")
-    response = requests.get(
+    get_notetype_fields_msg = get_notetype_fields_pb2.GetNotetypeFieldsRequest()
+    get_notetype_fields_msg.notetypeId = note_type.note_id
+    url = make_url(ANKI_BASE_URL_TYPE.USER, "svc/editor/get-notetype-fields")
+    response = requests.post(
         url,
         cookies=user_info.usernet_token,
-        params={"ntid": note_type.note_id},
-        verify=False,
+        data=get_notetype_fields_msg.SerializeToString(),
         timeout=REQUEST_TIMEOUT_S,
         headers=_get_headers(),
     )
-    if response.status_code != 200:
+    if not response.ok:
         if response.status_code == 403:
             raise AnkiAuthorizationException()
         raise RuntimeError  # TODO: use packet-wide exceptions
-    try:
-        content = response.json()
-    except requests.exceptions.JSONDecodeError:
-        logger.exception(msg={""})
-        raise RuntimeError("")
-    return [FieldInfo.from_dict(f) for f in content["fields"]]
+    get_notetype_fields_response = get_notetype_fields_pb2.GetNotetypeFieldsResponse()
+    get_notetype_fields_response.ParseFromString(response.content)
+
+    return [
+        FieldInfo(
+            order=f.ord.val,
+            field_name=f.name,
+            config=f.config,
+        )
+        for f in get_notetype_fields_response.fields
+    ]
 
 
 def add_card_to_deck(
@@ -244,7 +206,7 @@ def add_card_to_deck(
     card_info: CardInfo,
 ):
     logger.info(msg={"comment": "add a card", "user": user_info.username})
-    url = make_url(ANKI_BASE_URL_TYPE.USER, "edit/save")
+    url = make_url(ANKI_BASE_URL_TYPE.USER, "svc/editor/add-or-update")
 
     fields_array: list[str] = []
     for field in sorted(fields_info, key=lambda f: f.order):
@@ -255,38 +217,23 @@ def add_card_to_deck(
                 fields_array.append(card_info.front_text)
             case _:
                 fields_array.append("")
-    tags = ""
 
-    card_data_with_tag = [fields_array, tags]
-
-    data = {
-        "nid": "",
-        "data": json.dumps(card_data_with_tag),
-        "csrf_token": user_info.card_token,
-        "mid": note_type.note_id,
-        "deck": deck_info.deck_id,
-    }
+    msg = add_note_pb2.AddNote()
+    msg.fields.extend(fields_array)
+    msg.add.deckId = deck_info.deck_id
+    msg.add.notetypeId = note_type.note_id
 
     response = requests.post(
         url,
-        data=data,
+        data=msg.SerializeToString(),
         cookies=user_info.usernet_token,
-        verify=False,
         timeout=REQUEST_TIMEOUT_S,
         headers=_get_headers(),
     )
-    if response.status_code != 200:
+    if not response.ok:
         if response.status_code == 403:
             raise AnkiAuthorizationException()
         raise RuntimeError  # TODO: use packet-wide exceptions
-
-    content: list[str | list[str]] = []
-    try:
-        content = response.json()
-    except requests.exceptions.JSONDecodeError:
-        logger.exception(msg={""})
-        raise RuntimeError("")
-    assert content == card_data_with_tag, content
 
 
 def main():
