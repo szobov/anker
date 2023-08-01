@@ -25,10 +25,13 @@ jobs:
         python-version: "3.10"
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y libzbar0
+        sudo apt-get update && sudo apt-get install -y libzbar0 protobuf-compiler
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements/requirements-dev.txt
+    - name: Generate python's protobuf files
+      run: |
+        protoc --python_out=. ./anker/anki_proto/*.proto
     - name: Test with pytest
       run: |
         pytest

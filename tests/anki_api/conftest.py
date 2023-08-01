@@ -1,5 +1,3 @@
-import pathlib
-
 import pytest
 import responses
 
@@ -13,33 +11,22 @@ def mocked_http_requests():
 
 
 @pytest.fixture
-def login_html() -> str:
-    return pathlib.Path("tests/anki_api/data/login.html").resolve().read_text()
-
-
-@pytest.fixture
-def edit_html() -> str:
-    return pathlib.Path("tests/anki_api/data/edit.html").resolve().read_text()
-
-
-@pytest.fixture
 def user_info() -> types.UserInfo:
     return types.UserInfo(
         username="test_user",
         token={"ankiweb": "token"},
         usernet_token={"ankiweb": "usertoken"},
-        card_token="cardtoken",
     )
 
 
 @pytest.fixture
 def deck_info() -> types.DeckInfo:
-    return types.DeckInfo(deck_name="Test deck", deck_id="42")
+    return types.DeckInfo(deck_name="Test deck", deck_id=42)
 
 
 @pytest.fixture
 def note_type_info() -> types.NoteTypeInfo:
-    return types.NoteTypeInfo(note_id="56", note_name="Test note type")
+    return types.NoteTypeInfo(note_id=56, note_name="Test note type")
 
 
 @pytest.fixture

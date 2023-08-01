@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+enum LoginResponseStatus {
+  LOGIN_RESPONSE_STATUS_UNKNOWN = 0;
+  LOGIN_RESPONSE_STATUS_AUTHENTICATED = 1;
+  LOGIN_RESPONSE_STATUS_INVALID_USER = 2;
+  LOGIN_RESPONSE_STATUS_INVALID_PASS = 3;
+}
+
+message LoginResponse {
+  LoginResponseStatus status = 1;
+  string token = 2;
+}

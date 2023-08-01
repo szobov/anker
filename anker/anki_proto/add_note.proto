@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+message AddNote {
+  repeated string fields = 1;
+  string tags = 2;
+  oneof action {
+    Add add = 3;
+    Edit edit = 4;
+  }
+}
+
+message Add {
+  uint64 notetypeId = 1;
+  uint64 deckId = 2;
+}
+
+message Edit {
+  uint64 note_id = 1;
+}

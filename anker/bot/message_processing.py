@@ -214,7 +214,7 @@ def _process_select_deck(
         ),
     )
     deck_info = next(
-        filter(lambda deck: deck.deck_id == deck_id, decks_map.values()), None
+        filter(lambda deck: str(deck.deck_id) == deck_id, decks_map.values()), None
     )
     if deck_info is None:
         bot.send_message(chat_id, "Deck was not found. Please, call /decks again")

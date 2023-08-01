@@ -12,6 +12,8 @@ from pyzbar import pyzbar
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_REQUEST_TIMEOUT = 5 * 60
+
 DEFAULT_STICKER_EMOJI = "🤖"
 DEFAULT_STICKER_SET_TITLE = "test"
 
@@ -104,7 +106,9 @@ def extract_data_from_sticker_set(
         msg={"comment": "extract data from sticker set", "sticker_set": sticker_set}
     )
     sticker = sticker_set.stickers[0]
-    sticker_data = requests.get(bot.get_file_url(sticker.file_id))
+    sticker_data = requests.get(
+        bot.get_file_url(sticker.file_id), timeout=DEFAULT_REQUEST_TIMEOUT
+    )
     try:
         sticker_image = PIL.Image.open(io.BytesIO(sticker_data.content))
         return _extract_data_from_qr_code_image(sticker_image)

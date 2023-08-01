@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+message Child {
+  uint64 deck_id = 1;
+  string name = 2;
+  uint64 level = 4;
+  bool collapsed = 5;
+  uint64 review_count = 6;
+  uint64 learn_count = 7;
+  uint64 new_count = 8;
+  uint64 intraday_learning = 9;
+  uint64 interday_learning_uncapped = 10;
+  uint64 new_uncapped = 11;
+  uint64 review_uncapped = 12;
+  uint64 total_in_deck = 13;
+  uint64 total_including_children = 14;
+  bool filtered = 16;
+  repeated Child children = 3; // Recursive field
+}
+
+message DecksListInfo {
+  repeated Child top_node = 1;
+  uint64 current_deck_id = 2;
+  uint64 collection_size_bytes = 3;
+  uint64 media_size_bytes = 4;
+}
