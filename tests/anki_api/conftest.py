@@ -1,5 +1,3 @@
-import pathlib
-
 import pytest
 import responses
 
@@ -10,16 +8,6 @@ from anker import types
 def mocked_http_requests():
     with responses.RequestsMock() as mock:
         yield mock
-
-
-@pytest.fixture
-def login_html() -> str:
-    return pathlib.Path("tests/anki_api/data/login.html").resolve().read_text()
-
-
-@pytest.fixture
-def edit_html() -> str:
-    return pathlib.Path("tests/anki_api/data/edit.html").resolve().read_text()
 
 
 @pytest.fixture
