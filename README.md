@@ -27,7 +27,7 @@ Once you have access to the bot, you can do the following:
 
 # Running your own Anker
 
-1. First, you must feel the missing information in the [run.sh.template](https://github.com/szobov/anker/blob/master/run.sh.template) file. Please, read the instructions in the comments.
+1. First, you must fill the missing information in the [run.sh.template](https://github.com/szobov/anker/blob/master/run.sh.template) file. Please, read the instructions in the comments.
 2. Rename the *run.sh.template* file to `run.sh`.
 3. Build a docker image using `docker build -t Anker.` and run the container using `docker run -d --name Anker anker`.
 
