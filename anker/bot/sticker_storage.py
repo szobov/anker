@@ -50,7 +50,15 @@ def get_sticker_set(
     bot: telebot.TeleBot, sticker_set_name: str
 ) -> telebot.types.StickerSet | None:
     try:
-        return bot.get_sticker_set(sticker_set_name)
+        # A workaround an issue described here: https://github.com/eternnoir/pyTelegramBotAPI/issues/2212
+        is_workaround = True
+        if is_workaround:
+            result = telebot.apihelper.get_sticker_set(bot.token, sticker_set_name)
+            result["is_animated"] = False
+            result["is_video"] = False
+            return telebot.types.StickerSet.de_json(result)
+        else:
+            return bot.get_sticker_set(sticker_set_name)
     except telebot.apihelper.ApiTelegramException:
         return None
 
