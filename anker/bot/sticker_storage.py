@@ -50,7 +50,8 @@ def get_sticker_set(
     bot: telebot.TeleBot, sticker_set_name: str
 ) -> telebot.types.StickerSet | None:
     try:
-        # A workaround an issue described here: https://github.com/eternnoir/pyTelegramBotAPI/issues/2212
+        # A workaround an issue described here:
+        # https://github.com/eternnoir/pyTelegramBotAPI/issues/2212
         is_workaround = True
         if is_workaround:
             result = telebot.apihelper.get_sticker_set(bot.token, sticker_set_name)

@@ -47,7 +47,9 @@ def test_process_start(
         content_type="text/html",
     )
 
-    with patch("telebot.apihelper._make_request") as mocked_make_handler:
+    with patch("telebot.apihelper._make_request") as mocked_make_handler, patch(
+        "anker.bot.sticker_storage.get_sticker_set"
+    ):
         process_start(mocked_telebot, incomming_message)
         mocked_make_handler.assert_called_once()
     mocked_telebot.reply_to.assert_called_once()
